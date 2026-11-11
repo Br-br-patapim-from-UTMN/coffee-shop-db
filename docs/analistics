@@ -1,0 +1,94 @@
+# Аналитическая часть проекта
+
+В данном разделе представлены три ключевых бизнес-запроса, реализованных на языке SQL, которые демонстрируют практическую пользу разработанной базы данных для владельца кофейни.
+
+## Вопрос 1. На основе оценок заказов, распределить премия сотрудников
+
+**SQL-запрос:**
+```sql
+SELECT 
+    e.full_name, 
+    strftime('%Y-%m', o.created_at) AS report_month,
+    ROUND(AVG(r.rating), 2) AS avg_rating,        
+    CASE 
+        WHEN AVG(r.rating) >= 4.5 THEN 15000
+        WHEN AVG(r.rating) >= 4.0 THEN 10000
+        WHEN AVG(r.rating) >= 3.0 THEN 5000
+        ELSE 0
+    END AS bonus_amount
+FROM employees e
+JOIN orders o ON o.employee_id = e.id 
+JOIN reviews r ON r.order_id = o.id
+GROUP BY e.id, e.full_name, report_month
+ORDER BY report_month DESC, avg_rating DESC;```
+
+Польза разработанной БД заключается в автоматизации расчета премий сотрудников. 
+Система связывает реальные отзывы клиентов с конкретными сотрудниками через таблицу заказов. 
+Благодаря базе данных, мы можем расчитывать премию сотрудников, а так же смотреть прогресс их работы.
+
+## Вопрос 2. Составить тир лист кофе, чтобы сделать скидку на непопулярные позиции.
+**SQL-запрос:**
+```sql
+SELECT 
+    m.item_name AS "drink_name",
+    SUM(oi.quantity) AS "total_sold",
+    SUM(oi.line_total) AS "total_revenue",
+    CASE 
+        WHEN SUM(oi.quantity) >= 15 THEN 'Top Seller'
+        WHEN SUM(oi.quantity) >= 8  THEN 'Stable Demand'
+        WHEN SUM(oi.quantity) >= 4  THEN 'Low Demand'
+        ELSE 'Critical Low'
+    END AS "popularity_tier",
+    CASE 
+        WHEN SUM(oi.quantity) >= 15 THEN 0
+        WHEN SUM(oi.quantity) >= 8  THEN 5
+        WHEN SUM(oi.quantity) >= 4  THEN 10
+        ELSE 20
+    END AS "discount_percent",
+    ROUND(m.price * (1 - (
+        CASE 
+            WHEN SUM(oi.quantity) >= 15 THEN 0
+            WHEN SUM(oi.quantity) >= 8  THEN 5
+            WHEN SUM(oi.quantity) >= 4  THEN 10
+            ELSE 20
+        END) / 100.0), 2) AS "new_price"
+FROM menu_items m
+JOIN order_items oi ON m.id = oi.menu_item_id
+WHERE m.category_id = 1
+GROUP BY m.id, m.item_name, m.price
+ORDER BY "total_sold" DESC;```
+
+Этот запрос помогает решить проблему не популярных позиций. Он смотрит, 
+сколько раз был куплен каждый напиток, и делит их на группы  от лидеров продаж до тех, что почти не берут.
+ Дальше база сама решает, какую скидку дать каждой группе: лидерам — ноль, а самым непопулярным — максимальную. 
+В итоге база сразу выдает готовую скидку и цену для каждого напитка.
+
+## Вопрос 3. Какова суммарная выручка по трёхчасовым интервалам за каждый день?
+
+**SQL-запрос:**
+```sql
+SELECT date(created_at) AS particular_date,
+CASE
+WHEN strftime('%H', created_at) IN ('08','09','10') THEN '8:00-10:00'
+WHEN strftime('%H', created_at) IN ('11','12','13') THEN '11:00-13:00'
+WHEN strftime('%H', created_at) IN ('14','15','16') THEN '14:00-16:00'
+WHEN strftime('%H', created_at) IN ('17','18','19') THEN '17:00-19:00'
+WHEN strftime('%H', created_at) IN ('20','21','22') THEN '20:00-22:00'
+END AS particular_time,
+SUM(total_amount) AS total_revenue
+FROM orders
+GROUP BY date(created_at),
+CASE
+WHEN strftime('%H', created_at) IN ('08','09','10') THEN '8:00-10:00'
+WHEN strftime('%H', created_at) IN ('11','12','13') THEN '11:00-13:00'
+WHEN strftime('%H', created_at) IN ('14','15','16') THEN '14:00-16:00'
+WHEN strftime('%H', created_at) IN ('17','18','19') THEN '17:00-19:00'
+WHEN strftime('%H', created_at) IN ('20','21','22') THEN '20:00-22:00'
+END
+ORDER BY date(created_at) ASC, MIN(CAST(strftime('%H', created_at) AS INTEGER)) ASC;```
+
+Анализируем выручку по каждому временному интервалу каждого дня, проводя эксперименты. 
+Например, 2 ноября вводим акции в промежутке с 11 до 13 часов, а 3 ноября убираем их и 
+смотрим разницу в выручке за этот интервал. 4 ноября возвращаем часть акций и наблюдаем, как меняется выручка. 
+Это позволяет понять, какую акцию стоит вернуть, чтобы увеличить выручку в данном промежутке времени.
+
